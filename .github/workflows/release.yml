@@ -23,6 +23,8 @@ jobs:
           PKGNAME="${{ github.ref_name }}" make package
       - name: Create or find GitHub Release
         id: get_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG=${{ github.ref_name }}
