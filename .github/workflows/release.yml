@@ -67,21 +67,20 @@ jobs:
           UPLOAD_URL=${UPLOAD_URL%%\{*}
           echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
       - name: Upload release asset (tarball)
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          # Upload the tarball that was created by make package. Name uses the tag.
-          asset_path: dist/${{ github.ref_name }}-mailprobe.tar.gz
-          asset_name: mailprobe-${{ github.ref_name }}.tar.gz
-          asset_content_type: application/gzip
+          UPLOAD_URL: ${{ steps.get_release.outputs.upload_url }}
+        run: |
+          set -euo pipefail
+          U=${UPLOAD_URL%%\{*}
+          echo "Uploading tarball to $U"
+          curl -sS -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/gzip" --data-binary @dist/${{ github.ref_name }}-mailprobe.tar.gz "${U}?name=mailprobe-${{ github.ref_name }}.tar.gz"
       - name: Upload release asset (sha256)
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          asset_path: dist/${{ github.ref_name }}-mailprobe.sha256
-          asset_name: mailprobe-${{ github.ref_name }}.sha256
-          asset_content_type: text/plain
+          UPLOAD_URL: ${{ steps.get_release.outputs.upload_url }}
+        run: |
+          set -euo pipefail
+          U=${UPLOAD_URL%%\{*}
+          echo "Uploading sha256 to $U"
+          curl -sS -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: text/plain" --data-binary @dist/${{ github.ref_name }}-mailprobe.sha256 "${U}?name=mailprobe-${{ github.ref_name }}.sha256"
