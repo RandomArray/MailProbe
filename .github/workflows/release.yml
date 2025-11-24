@@ -21,22 +21,53 @@ jobs:
         run: |
           # Force PKGNAME to the tag name so package names match the tag in release
           PKGNAME="${{ github.ref_name }}" make package
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+      - name: Create or find GitHub Release
+        id: get_release
+        run: |
+          set -euo pipefail
+          TAG=${{ github.ref_name }}
+          REPO=${{ github.repository }}
+
+          # ensure jq is available
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq >/dev/null
+          fi
+
+          # Attempt to create the release. If it already exists, fall back to fetching it.
+          echo "Attempting to create release $TAG in $REPO"
+          if curl -sS -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+                https://api.github.com/repos/${REPO}/releases -d "{\"tag_name\": \"${TAG}\", \"name\": \"${TAG}\", \"draft\": false, \"prerelease\": false}" \
+                -o /tmp/release.json; then
+            # check for 'id' and upload_url
+            if jq -e '.id and .upload_url' /tmp/release.json >/dev/null 2>&1; then
+              echo "Created release $TAG"
+            fi
+          fi
+
+          # If creation failed or release already exists, try to fetch it explicitly
+          if ! jq -e '.upload_url' /tmp/release.json >/dev/null 2>&1; then
+            echo "Release create returned no upload_url, fetching existing release $TAG"
+            curl -sS -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${REPO}/releases/tags/${TAG}" -o /tmp/release.json
+          fi
+
+          if ! jq -e '.upload_url' /tmp/release.json >/dev/null 2>&1; then
+            echo "ERROR: failed to create or fetch release for tag $TAG"
+            cat /tmp/release.json || true
+            exit 1
+          fi
+
+          UPLOAD_URL=$(jq -r .upload_url /tmp/release.json)
+          # remove the template part { ?name,label }
+          UPLOAD_URL=${UPLOAD_URL%%\{*}
+          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
       - name: Upload release asset (tarball)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
           # Upload the tarball that was created by make package. Name uses the tag.
           asset_path: dist/${{ github.ref_name }}-mailprobe.tar.gz
           asset_name: mailprobe-${{ github.ref_name }}.tar.gz
@@ -46,7 +77,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
           asset_path: dist/${{ github.ref_name }}-mailprobe.sha256
           asset_name: mailprobe-${{ github.ref_name }}.sha256
           asset_content_type: text/plain
