@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# mail_diag.sh - MailProbe: email diagnostics and autodiscover tester
+# SPDX-License-Identifier: MIT
+#
+# MailProbe — email diagnostics and autodiscover tester (mailprobe.sh)
+# Copyright (c) 2025 RandomArray
+#
+# Licensed under the MIT License. See https://opensource.org/licenses/MIT
+#
 # Author: Mike's AI sidekick 😎
 # Requires: bash, and (recommended) dig/host, openssl, nc/curl
 
