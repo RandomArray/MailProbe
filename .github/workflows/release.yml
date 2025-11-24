@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*.*.*'
 
+# Allow this workflow to create releases and upload assets using the GITHUB_TOKEN
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
