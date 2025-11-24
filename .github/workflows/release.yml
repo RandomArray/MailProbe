@@ -15,7 +15,8 @@ jobs:
           mkdir -p dist
       - name: Create package
         run: |
-          make package || true
+          # Force PKGNAME to the tag name so package names match the tag in release
+          PKGNAME="${{ github.ref_name }}" make package
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -32,6 +33,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
+          # Upload the tarball that was created by make package. Name uses the tag.
           asset_path: dist/${{ github.ref_name }}-mailprobe.tar.gz
           asset_name: mailprobe-${{ github.ref_name }}.tar.gz
           asset_content_type: application/gzip
