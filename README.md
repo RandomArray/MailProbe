@@ -9,12 +9,6 @@
 [![Release](https://github.com/RandomArray/MailProbe/actions/workflows/release.yml/badge.svg)](https://github.com/RandomArray/MailProbe/actions/workflows/release.yml)
 
 **MailProbe** is a lightweight, comprehensive diagnostics toolkit for testing and validating email infrastructure.
-Maintained by Mike Johanning <mikejohanning@gmail.com> (RandomArray)
-
-Maintainers / Authors:
-
-- Mike Johanning <mikejohanning@gmail.com> — maintainer
-- RandomArray — project owner
 
 It helps sysadmins, support engineers, and developers troubleshoot issues related to:
 
