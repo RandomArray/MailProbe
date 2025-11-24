@@ -3,6 +3,7 @@
 #
 # MailProbe — email diagnostics and autodiscover tester (mailprobe.sh)
 # Copyright (c) 2025 RandomArray
+# Copyright (c) 2025 Mike Johanning <mikejohanning@gmail.com>
 #
 # Licensed under the MIT License. See https://opensource.org/licenses/MIT
 #

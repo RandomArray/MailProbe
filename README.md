@@ -1,7 +1,9 @@
 # MailProbe
 
 **MailProbe** is a lightweight, comprehensive diagnostics toolkit for testing and validating email infrastructure.
-It helps sysadmins, support engineers, and developers troubleshoot issues related to:
+Maintained by Mike Johanning <mikejohanning@gmail.com> (RandomArray)
+
+This is the state of the context at this point in the conversation. The view of the workspace structure may be truncated. You can use tools to collect more context if needed.
 
 - Email delivery
 - Mail client configuration
