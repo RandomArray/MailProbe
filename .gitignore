@@ -18,6 +18,7 @@ venv/
 # Backup and package artifacts
 *.tar.gz
 *.zip
+dist/
 
 # macOS
 .Spotlight-V100
