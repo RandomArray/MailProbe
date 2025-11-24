@@ -26,6 +26,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # ensure GITHUB_TOKEN is defined before "set -u"
+          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
           set -euo pipefail
           TAG=${{ github.ref_name }}
           REPO=${{ github.repository }}
