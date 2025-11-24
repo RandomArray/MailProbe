@@ -4,6 +4,9 @@
 ![Shell](https://img.shields.io/badge/shell-bash-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
+[![ShellCheck](https://github.com/RandomArray/MailProbe/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/RandomArray/MailProbe/actions/workflows/shellcheck.yml)
+[![Tests](https://github.com/RandomArray/MailProbe/actions/workflows/test.yml/badge.svg)](https://github.com/RandomArray/MailProbe/actions/workflows/test.yml)
+[![Release](https://github.com/RandomArray/MailProbe/actions/workflows/release.yml/badge.svg)](https://github.com/RandomArray/MailProbe/actions/workflows/release.yml)
 
 **MailProbe** is a lightweight, comprehensive diagnostics toolkit for testing and validating email infrastructure.
 Maintained by Mike Johanning <mikejohanning@gmail.com> (RandomArray)
