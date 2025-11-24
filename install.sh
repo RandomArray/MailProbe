@@ -97,4 +97,4 @@ else
   echo "Installed mailprobe -> $TARGET (via sudo)"
 fi
 
-echo "Done. Run '$TARGET -h' or 'mailprobe -h' to verify." 
+echo "Done. Run '$TARGET -h' or 'mailprobe -h' to verify."
