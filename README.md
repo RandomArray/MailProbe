@@ -1,5 +1,9 @@
 # MailProbe
 
+<p align="center">
+	<img src="assets/mailprobe-logo.png" alt="MailProbe logo" width="160" />
+</p>
+
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Shell](https://img.shields.io/badge/shell-bash-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
