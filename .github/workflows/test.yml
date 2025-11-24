@@ -1,0 +1,24 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup bash
+        run: |
+          echo "Using bash: $BASH_VERSION"
+      - name: Run tests
+        run: |
+          chmod +x ./tests/run-tests.sh
+          ./tests/run-tests.sh
