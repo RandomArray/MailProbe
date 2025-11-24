@@ -1,7 +1,7 @@
 # MailProbe
 
 <p align="center">
-	<img src="assets/mailprobe-logo.png" alt="MailProbe logo" width="160" />
+	<img src="assets/mailprobe-logo.png" alt="MailProbe logo" width="420" />
 </p>
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
