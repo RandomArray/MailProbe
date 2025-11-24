@@ -1,9 +1,19 @@
 # MailProbe
 
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Shell](https://img.shields.io/badge/shell-bash-green)
+![License](https://img.shields.io/badge/license-MIT-yellow)
+![Status](https://img.shields.io/badge/status-stable-brightgreen)
+
 **MailProbe** is a lightweight, comprehensive diagnostics toolkit for testing and validating email infrastructure.
 Maintained by Mike Johanning <mikejohanning@gmail.com> (RandomArray)
 
-This is the state of the context at this point in the conversation. The view of the workspace structure may be truncated. You can use tools to collect more context if needed.
+Maintainers / Authors:
+
+- Mike Johanning <mikejohanning@gmail.com> — maintainer
+- RandomArray — project owner
+
+It helps sysadmins, support engineers, and developers troubleshoot issues related to:
 
 - Email delivery
 - Mail client configuration
