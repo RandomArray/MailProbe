@@ -345,7 +345,7 @@ run_dns_tests() {
   local mx
   mx=$(dns_query MX "$domain" || true)
   if [ -n "$mx" ]; then
-    echo "$mx" | sed 's/^/  /'
+    sed 's/^/  /' <<< "$mx"
   else
     log_warn "No MX records found for $domain"
   fi
@@ -354,7 +354,7 @@ run_dns_tests() {
   local aaaa
   aaaa=$(dns_query A "$domain"; dns_query AAAA "$domain" || true)
   if [ -n "$aaaa" ]; then
-    echo "$aaaa" | sed 's/^/  /'
+    sed 's/^/  /' <<< "$aaaa"
   else
     log_warn "No A/AAAA records for $domain"
   fi
@@ -368,7 +368,7 @@ run_dns_tests() {
   local dmarc
   dmarc=$(dns_query TXT "_dmarc.$domain" || true)
   if [ -n "$dmarc" ]; then
-    echo "$dmarc" | sed 's/^/  /'
+    sed 's/^/  /' <<< "$dmarc"
   else
     log_warn "No DMARC record found"
   fi
@@ -379,7 +379,7 @@ run_dns_tests() {
     rec=$(dns_query A "$host"; dns_query CNAME "$host" || true)
     if [ -n "$rec" ]; then
       log_ok "${GREEN}$host resolves to:${RESET}"
-      echo "$rec" | sed 's/^/  /'
+      sed 's/^/  /' <<< "$rec"
     else
       log_warn "$host has no A/CNAME record"
     fi
@@ -391,7 +391,7 @@ run_dns_tests() {
     srvdata=$(dns_query SRV "$srv.$domain" || true)
     if [ -n "$srvdata" ]; then
       log_ok "$srv.$domain:"
-      echo "$srvdata" | sed 's/^/  /'
+      sed 's/^/  /' <<< "$srvdata"
     fi
   done
 }
