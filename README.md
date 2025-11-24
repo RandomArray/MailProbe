@@ -92,7 +92,27 @@ EMAIL_PASS="MyPassword" ./mailprobe.sh -e user@example.com -p
 ./mailprobe.sh -e user@example.com --use-mx
 ```
 
-## ⚙️ Installation (system-wide)
+## ⚙️ Installation
+
+There are a few ways to install MailProbe. The recommended options preserve the executable bit and make upgrades easier.
+
+System-wide (recommended for admins):
+
+```
+sudo ./install.sh --prefix /usr/local
+# or via the Makefile
+sudo make install PREFIX=/usr/local
+```
+
+Per-user (no sudo):
+
+```
+./install.sh --prefix ~/.local --force
+# or
+make install PREFIX=$HOME/.local
+```
+
+If you prefer the manual approach, you can still copy the file directly:
 
 ```
 sudo cp mailprobe.sh /usr/local/bin/mailprobe
@@ -134,6 +154,38 @@ Licensed under the MIT License. See `LICENSE` for details.
 ## 🤝 Contributing
 
 Pull requests are always welcome.
+
+### Local development / testing
+
+If you want to contribute or run the test suite locally, here are a few useful commands:
+
+- Install a few dev tools (Ubuntu example):
+
+```bash
+sudo apt-get update && sudo apt-get install -y shellcheck shfmt git
+```
+
+- Lint the script with shellcheck:
+
+```bash
+shellcheck -x mailprobe.sh
+```
+
+- Format with shfmt (optional):
+
+```bash
+shfmt -w mailprobe.sh
+```
+
+- Run the small test harness:
+
+```bash
+make test
+# or
+./tests/run-tests.sh
+```
+
+See `CONTRIBUTING.md` for more details on development and testing guidance.
 
 ## 🐛 Bug Reports
 
