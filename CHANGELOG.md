@@ -16,6 +16,13 @@ All notable changes to this project will be documented in this file.
 - Add new CLI flag `--test-insecure-ports` to opt in to testing legacy plaintext ports (143/110/25); these are skipped by default.
 - Add tests ensuring JSON-only behavior and the no-redirect scenario.
 
+## [1.1.1] - 2025-11-24
+
+- Increase grace period on internal run_with_timeout fallback to improve
+	reliability of captured early stdout on CI/low-scheduling environments.
+	This reduces flaky failures where early stdout output could be lost after
+	a forced timeout.
+
 
 ## [1.0.0] - 2025-11-23
 
