@@ -290,7 +290,11 @@ run_with_timeout() {
       else
         kill "$pid" >/dev/null 2>&1 || true
       fi
-      sleep 0.05
+      # Allow a short grace period for the child process to flush any buffered
+      # stdout/stderr to disk before we escalate to SIGKILL. Small CI images
+      # can be tight on scheduling; increase the wait slightly to reduce
+      # flaky missing-stdout failures.
+      sleep 0.20
       if [ -n "$SESS_BIN" ]; then
         kill -9 -"$pid" >/dev/null 2>&1 || true
       else
