@@ -4,7 +4,7 @@
 	<img src="assets/mailprobe-logo.png" alt="MailProbe logo" width="420" />
 </p>
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![Shell](https://img.shields.io/badge/shell-bash-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
@@ -38,6 +38,8 @@ MailProbe runs entirely from the command line and requires no installation—jus
 - IMAP: 143 / 993
 - POP3: 110 / 995
 - SMTP: 25 / 465 / 587
+
+Note: for safety, legacy plaintext ports (IMAP:143, POP3:110, SMTP:25) are not probed by default — use `--test-insecure-ports` to include them in the scan.
 - Timeout-controlled TCP probing
 - STARTTLS verification
 
@@ -91,6 +93,19 @@ EMAIL_PASS="MyPassword" ./mailprobe.sh -e user@example.com -p
 
 ```
 ./mailprobe.sh -e user@example.com --use-mx
+
+### JSON-only output (machine friendly)
+
+If you want only the machine-readable JSON on stdout (so you can pipe it to tools
+like jq), route normal diagnostic output (human-readable) to stderr. Example:
+
+```bash
+# Emit JSON only on stdout and silence human output
+./mailprobe.sh -e user@example.com --no-dns --no-autodiscover --no-ports --summary json 2>/dev/null
+
+# Pretty-print JSON with jq (human output will be on stderr)
+./mailprobe.sh -e user@example.com --no-dns --no-autodiscover --no-ports --summary json 2>/dev/null | jq .
+```
 ```
 
 ## ⚙️ Installation
@@ -146,7 +161,7 @@ Licensed under the MIT License. See `LICENSE` for details.
 ## 🧩 Shields.io Badges
 
 ```
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![Shell](https://img.shields.io/badge/shell-bash-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)

@@ -2,12 +2,7 @@
 # SPDX-License-Identifier: MIT
 #
 # MailProbe — email diagnostics and autodiscover tester (mailprobe.sh)
-# Copyright (c) 2025 RandomArray
-# Copyright (c) 2025 Mike Johanning <mikejohanning@gmail.com>
-#
-# Licensed under the MIT License. See https://opensource.org/licenses/MIT
-#
-# Author: Mike's AI sidekick 😎
+# https://github.com/RandomArray/MailProbe
 # Requires: bash, and (recommended) dig/host, openssl, nc/curl
 
 set -u -o pipefail
@@ -24,6 +19,7 @@ fi
 if [ "${NO_COLOR:-0}" -eq 1 ]; then
   USE_COLOR=0
 fi
+
 
 if [ "$USE_COLOR" -eq 1 ] && command -v tput >/dev/null 2>&1; then
   GREEN=$(tput setaf 2)
@@ -45,17 +41,29 @@ SPARK="${MAGENTA}✴${RESET}"
 ############################
 # Logging helpers
 ############################
-log_info()  { echo -e "${CYAN}[i]${RESET} $*"; }
-log_ok()    { echo -e "${CHECK_OK} ${GREEN}$*${RESET}"; }
-log_warn()  { echo -e "${CHECK_WARN} ${YELLOW}$*${RESET}"; }
-log_error() { echo -e "${CHECK_FAIL} ${RED}$*${RESET}" >&2; }
+INFO_ICON="🔎"
+
+# Summary collectors: record issues and discovered config values to show a
+# compact summary at the end of a run. These arrays are intentionally
+# lightweight (plain text) so they are safe to source or print in CI.
+declare -a SUMMARY_ISSUES=()
+declare -a SUMMARY_FOUND=()
+declare -a SUMMARY_PORTS=()
+declare -a SUMMARY_TLS=()
+declare -a SUMMARY_AUTH=()
+
+# Track warnings/errors in the printable summary so the user gets an at-a-glance
+# view of what to check after the run. Keep printing behaviour for visual
+# output but also append plain text to the summary arrays.
+# (log functions are defined later; we define detailed versions after
+# the summary arrays so they can reference SUMMARY_FORMAT at runtime)
 
 ############################
 # Banner
 ############################
 print_banner() {
   # Use colored and concise banner header
-  printf "%s\n" "${MAGENTA}${BOLD}MailProbe${RESET} by ${CYAN}RandomArray${RESET} — ${BOLD}MailProbe (open-source)${RESET}"
+  printf "%s\n" "${MAGENTA}${BOLD}MailProbe${RESET} by ${CYAN}RandomArray${RESET} - ${BOLD}MailProbe (open-source)${RESET}"
   printf "%s\n\n" "${CYAN}Light-weight diagnostics and connectivity probe for mail delivery/auth${RESET}"
 }
 
@@ -80,14 +88,18 @@ Options:
   -p, --prompt-password     Prompt for password and run login tests
   --password PASSWORD       Provide password on command line (insecure; prefer env)
   -t, --timeout SECONDS     TCP/connect timeout in seconds (default: 5)
-  --use-mx                 Prefer using MX host(s) for SMTP/server selection
-  --show-body              Show HTTP response bodies for autodiscover/autoconfig (default ON)
-  --no-show-body           Do not fetch or display HTTP response bodies
-  --max-body-lines NUM     Maximum lines of HTTP body to print (default: 120)
+  --use-mx                  Prefer using MX host(s) for SMTP/server selection
+  --show-body               Show HTTP response bodies for autodiscover/autoconfig (default ON)
+  --no-show-body            Do not fetch or display HTTP response bodies
+  --max-body-lines NUM      Maximum lines of HTTP body to print (default: 120)
       --no-autodiscover     Skip autodiscover/autoconfig HTTP tests
       --no-dns              Skip DNS tests
       --no-ports            Skip port/connectivity tests
+      --test-insecure-ports Also test legacy plaintext ports (143/110/25). These are skipped by default.
       --no-color            Disable color output
+      --summary FORMAT      Emit a short machine-readable summary. Supported: plain (default), json
+           --summary-format FORMAT
+                            Alias for --summary (for backwards-compatibility)
   -h, --help                Show this help
 
 Examples:
@@ -98,13 +110,53 @@ Examples:
   $(basename "$0") -e user@example.com -u user --password MySecret123 --use-mx
   $(basename "$0") -e user@example.com -S mail.example.com --no-autodiscover
 
+  # JSON-only output example: route human diagnostics to stderr so stdout contains
+  # only the machine-readable JSON summary.
+  # $(basename "$0") -e user@example.com --no-dns --no-autodiscover --no-ports --summary json 2>/dev/null
+
 EOF
 }
 
 ############################
 # Tool checks
-############################
+log_info()  {
+  if [ "${SUMMARY_FORMAT:-plain}" = "json" ]; then
+    # When emitting machine output, route human diagnostics to stderr
+    echo -e "${CYAN}${INFO_ICON}${RESET} $*" >&2
+  else
+    echo -e "${CYAN}${INFO_ICON}${RESET} $*"
+  fi
+}
+
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+# Logging helpers (global) — route human output to stderr in JSON mode
+log_ok() {
+  if [ "${SUMMARY_FORMAT:-plain}" = "json" ]; then
+    echo -e "${CHECK_OK} ${GREEN}$*${RESET}" >&2
+  else
+    echo -e "${CHECK_OK} ${GREEN}$*${RESET}"
+  fi
+  SUMMARY_FOUND+=("$*")
+}
+
+log_warn() {
+  if [ "${SUMMARY_FORMAT:-plain}" = "json" ]; then
+    echo -e "${CHECK_WARN} ${YELLOW}$*${RESET}" >&2
+  else
+    echo -e "${CHECK_WARN} ${YELLOW}$*${RESET}"
+  fi
+  SUMMARY_ISSUES+=("$*")
+}
+
+log_error() {
+  if [ "${SUMMARY_FORMAT:-plain}" = "json" ]; then
+    echo -e "${CHECK_FAIL} ${RED}$*${RESET}" >&2
+  else
+    echo -e "${CHECK_FAIL} ${RED}$*${RESET}" >&2
+  fi
+  SUMMARY_ISSUES+=("$*")
+}
 
 require_one_of() {
   local name="$1"; shift
@@ -147,35 +199,32 @@ tcp_test() {
   # Quick check using bash's /dev/tcp if available. Use timeout wrapper
   # when available to avoid indefinite blocking.
   log_info "[$label] Attempting TCP connect to $host:$port (timeout ${timeout}s)"
-  if [ -n "$TIMEOUT_BIN" ]; then
-    if "$TIMEOUT_BIN" "${timeout}s" bash -c "exec 3<>/dev/tcp/$host/$port" >/dev/null 2>&1; then
-      exec 3>&-
-      log_ok "[$label] TCP $host:$port reachable (via /dev/tcp)"
-      return 0
-    fi
-  else
-    if (exec 3<>"/dev/tcp/$host/$port") >/dev/null 2>&1; then
-      exec 3>&-
-      log_ok "[$label] TCP $host:$port reachable (via /dev/tcp)"
-      return 0
-    fi
+  # Try /dev/tcp (bash builtin) but always enforce a timeout using
+  # run_with_timeout so this never blocks indefinitely.
+  if run_with_timeout "${timeout}" bash -c "exec 3<>/dev/tcp/$host/$port" >/dev/null 2>&1; then
+    log_ok "[$label] TCP $host:$port reachable (via /dev/tcp)"
+    SUMMARY_PORTS+=("[$label] TCP $host:$port reachable (via /dev/tcp)")
+    return 0
   fi
 
   if [ -n "$NC_TOOL" ]; then
     # Try the most common netcat invocation first (with timeout)
-    if "$NC_TOOL" -z -w "$timeout" "$host" "$port" >/dev/null 2>&1; then
+    if run_with_timeout "${timeout}" "$NC_TOOL" -z -w "$timeout" "$host" "$port" >/dev/null 2>&1; then
       log_ok "[$label] TCP $host:$port reachable (via $NC_TOOL -z)"
+      SUMMARY_PORTS+=("[$label] TCP $host:$port reachable (via $NC_TOOL -z)")
       return 0
     fi
 
     # Some netcat variants are a bit different; try a minimal probe
-    if "$NC_TOOL" -z "$host" "$port" >/dev/null 2>&1; then
+    if run_with_timeout "${timeout}" "$NC_TOOL" -z "$host" "$port" >/dev/null 2>&1; then
       log_ok "[$label] TCP $host:$port reachable (via $NC_TOOL -z fallback)"
+      SUMMARY_PORTS+=("[$label] TCP $host:$port reachable (via $NC_TOOL -z fallback)")
       return 0
     fi
   fi
 
   log_error "[$label] TCP $host:$port NOT reachable"
+  SUMMARY_PORTS+=("[$label] TCP $host:$port NOT reachable")
   return 1
 }
 
@@ -185,6 +234,86 @@ tcp_test() {
 OPENSSL_BIN="$(require_one_of 'TLS handshakes' openssl || echo "")"
 BASE64_BIN="$(require_one_of 'base64' base64 || echo "")"
 TIMEOUT_BIN="$(require_one_of 'timeout' timeout gtimeout || echo "")"
+# When performing the fallback background launch we prefer to run the target
+# in a new session so we can reliably kill the whole process group on timeout.
+SESS_BIN="$(require_one_of 'session leader' setsid || echo "")"
+
+# run_with_timeout: execute a command with a timeout (seconds). Prefer the
+# system-provided timeout command when available. When that's missing, fall
+# back to a lightweight bash-managed timeout to avoid indefinite blocking in
+# environments where /dev/tcp or openssl may hang.
+#
+# Usage: run_with_timeout SECONDS cmd args...
+run_with_timeout() {
+  local timeout_seconds="$1"; shift
+
+  if [ -n "$TIMEOUT_BIN" ]; then
+    # Use system timeout when available — preserves usual exit codes and
+    # leaves stdout/stderr behavior untouched.
+    "$TIMEOUT_BIN" "${timeout_seconds}s" "$@"
+    return $?
+  fi
+
+  # Fallback: run command in background but capture stdout/stderr to
+  # temporary files so callers can capture output via command substitution.
+  local stdout_file
+  stdout_file=$(mktemp) || stdout_file=/tmp/mailprobe_stdout_$$
+  local stderr_file
+  stderr_file=$(mktemp) || stderr_file=/tmp/mailprobe_stderr_$$
+
+  # Launch the command under a shell that uses exec so the spawned process
+  # replaces the shell — this ensures $! matches the long-running command
+  # rather than a short-lived wrapper (fixes race where wrappers exit).
+  local cmd=("$@")
+  if [ -n "$SESS_BIN" ]; then
+    # Use setsid to run in new session so we can kill the whole group reliably
+    $SESS_BIN bash -c 'exec "$@"' -- "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" &
+  else
+    bash -c 'exec "$@"' -- "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" &
+  fi
+  local pid=$!
+
+  local max_ticks=$((timeout_seconds * 10))
+  local ticks=0
+  if [ "${DEBUG_RWT:-0}" -eq 1 ]; then
+    echo "DEBUG run_with_timeout: pid=$pid max_ticks=$max_ticks" >&2
+  fi
+  while kill -0 "$pid" >/dev/null 2>&1; do
+    if [ "$ticks" -ge "$max_ticks" ]; then
+      if [ "${DEBUG_RWT:-0}" -eq 1 ]; then
+        echo "DEBUG run_with_timeout: timed out (ticks=$ticks) killing pid=$pid" >&2
+      fi
+      # Timed out; attempt polite termination then force.
+      if [ -n "$SESS_BIN" ]; then
+        # kill the whole process group
+        kill -TERM -"$pid" >/dev/null 2>&1 || true
+      else
+        kill "$pid" >/dev/null 2>&1 || true
+      fi
+      sleep 0.05
+      if [ -n "$SESS_BIN" ]; then
+        kill -9 -"$pid" >/dev/null 2>&1 || true
+      else
+        kill -9 "$pid" >/dev/null 2>&1 || true
+      fi
+      wait "$pid" 2>/dev/null || true
+      # Emit whatever the command produced before timing out.
+      cat "$stdout_file"
+      cat "$stderr_file" >&2
+      rm -f "$stdout_file" "$stderr_file" 2>/dev/null || true
+      return 124
+    fi
+    sleep 0.1
+    ticks=$((ticks + 1))
+  done
+
+  wait "$pid"
+  local rc=$?
+  cat "$stdout_file"
+  cat "$stderr_file" >&2
+  rm -f "$stdout_file" "$stderr_file" 2>/dev/null || true
+  return $rc
+}
 
 tls_probe() {
   local host="$1" port="$2" label="$3" starttls_proto="${4:-}" timeout="${5:-$TCP_TIMEOUT}"
@@ -211,22 +340,23 @@ tls_probe() {
   local out
   # Redirect stderr to /dev/null when running openssl so our parsing won't
   # be polluted by progress messages. We also feed /dev/null to stdin.
-  if [ -n "$TIMEOUT_BIN" ]; then
-    if ! out="$($TIMEOUT_BIN "${timeout}s" "${cmd[@]}" </dev/null 2>/dev/null)"; then
-      log_error "[$label] TLS handshake FAILED on $host:$port (timeout or error)"
-      return 1
-    fi
-  else
-    if ! out="$("${cmd[@]}" </dev/null 2>/dev/null)"; then
-      log_error "[$label] TLS handshake FAILED on $host:$port"
-      return 1
-    fi
+  # Use run_with_timeout to protect against environments where `timeout`
+  # isn't installed and openssl may block indefinitely. Capture both stdout
+  # and stderr so we can parse handshake output consistently.
+  out=$(run_with_timeout "${timeout}" "${cmd[@]}" </dev/null 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    log_error "[$label] TLS handshake FAILED on $host:$port (timeout or error)"
+    SUMMARY_TLS+=("[$label] TLS handshake FAILED on $host:$port (timeout or error)")
+    return 1
   fi
 
   if echo "$out" | grep -qi "Verify return code: 0"; then
     log_ok "[$label] TLS cert verified OK on $host:$port"
+    SUMMARY_TLS+=("[$label] TLS cert verified OK on $host:$port")
   else
     log_warn "[$label] TLS handshake OK but certificate verification may have issues"
+    SUMMARY_TLS+=("[$label] TLS handshake OK but certificate verification may have issues on $host:$port")
   fi
 
   local subject issuer notAfter
@@ -264,24 +394,20 @@ imap_auth_test() {
   local imap_cmd out
   imap_cmd="a1 LOGIN \"$EMAIL_USER\" \"$EMAIL_PASS\"\r\na2 LOGOUT\r\n"
 
-  if [ "$port" -eq 143 ]; then
-    if [ -n "$TIMEOUT_BIN" ]; then
-      out=$(printf "%b" "$imap_cmd" | $TIMEOUT_BIN "${timeout}s" "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" -starttls imap 2>/dev/null || true)
+    if [ "$port" -eq 143 ]; then
+      out=$(printf "%b" "$imap_cmd" | run_with_timeout "${timeout}" "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" -starttls imap 2>&1)
+      rc=$?
     else
-      out=$(printf "%b" "$imap_cmd" | "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" -starttls imap 2>/dev/null || true)
+      out=$(printf "%b" "$imap_cmd" | run_with_timeout "${timeout}" "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" 2>&1)
+      rc=$?
     fi
-  else
-    if [ -n "$TIMEOUT_BIN" ]; then
-      out=$(printf "%b" "$imap_cmd" | $TIMEOUT_BIN "${timeout}s" "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" 2>/dev/null || true)
-    else
-      out=$(printf "%b" "$imap_cmd" | "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" 2>/dev/null || true)
-    fi
-  fi
 
   if echo "$out" | grep -qi "^a1 OK"; then
     log_ok "[$label] IMAP LOGIN succeeded for $EMAIL_USER"
+    SUMMARY_AUTH+=("[IMAP] LOGIN succeeded for $EMAIL_USER on $host:$port")
   else
     log_error "[$label] IMAP LOGIN appears to have FAILED for $EMAIL_USER"
+    SUMMARY_AUTH+=("[IMAP] LOGIN FAILED for $EMAIL_USER on $host:$port")
     echo "   ${YELLOW}Server said:${RESET}"
     echo "$out" | sed 's/^/     /' | head -n 6
   fi
@@ -305,23 +431,19 @@ pop3_auth_test() {
   pop_cmd="USER $EMAIL_USER\r\nPASS $EMAIL_PASS\r\nQUIT\r\n"
 
   if [ "$port" -eq 110 ]; then
-    if [ -n "$TIMEOUT_BIN" ]; then
-      out=$(printf "%b" "$pop_cmd" | $TIMEOUT_BIN "${timeout}s" "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" -starttls pop3 2>/dev/null || true)
-    else
-      out=$(printf "%b" "$pop_cmd" | "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" -starttls pop3 2>/dev/null || true)
-    fi
+    out=$(printf "%b" "$pop_cmd" | run_with_timeout "${timeout}" "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" -starttls pop3 2>&1)
+    rc=$?
   else
-    if [ -n "$TIMEOUT_BIN" ]; then
-      out=$(printf "%b" "$pop_cmd" | $TIMEOUT_BIN "${timeout}s" "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" 2>/dev/null || true)
-    else
-      out=$(printf "%b" "$pop_cmd" | "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" 2>/dev/null || true)
-    fi
+    out=$(printf "%b" "$pop_cmd" | run_with_timeout "${timeout}" "$OPENSSL_BIN" s_client -crlf -quiet -connect "${host}:${port}" 2>&1)
+    rc=$?
   fi
 
   if echo "$out" | grep -qi "+OK"; then
     log_ok "[$label] POP3 login returned +OK for $EMAIL_USER"
+    SUMMARY_AUTH+=("[POP3] LOGIN succeeded for $EMAIL_USER on $host:$port")
   else
     log_error "[$label] POP3 login appears to have FAILED for $EMAIL_USER"
+    SUMMARY_AUTH+=("[POP3] LOGIN FAILED for $EMAIL_USER on $host:$port")
     echo "   ${YELLOW}Server said:${RESET}"
     echo "$out" | sed 's/^/     /' | head -n 6
   fi
@@ -452,9 +574,55 @@ run_autodiscover_tests() {
     code=$(printf "%s" "$status" | sed -n 's/.*HTTP\/[^ ]* \([0-9][0-9][0-9]\).*/\1/p' || true)
     if [ -z "$code" ]; then
       # Some servers/clients may return empty status; treat as warn/reachable
-      log_warn "Endpoint returned no HTTP status header: $u"
+      log_warn " Endpoint returned no HTTP status header: $u"
       echo "   Status: $status"
       code=""
+    fi
+
+    # If the endpoint complains about a missing email address and we have an
+    # email available, try probing with a query parameter and also try an
+    # Exchange-style SOAP POST to elicit a richer response.
+    if [ -n "$EMAIL" ]; then
+      # Try common query parameter variants
+      for param in "emailaddress" "EmailAddress"; do
+        local qurl
+        qurl="${u}?${param}=${EMAIL}"
+        log_info "   Trying GET with ?${param} for: $qurl"
+        local qstatus
+        qstatus=$(http_head "$qurl" || true)
+        local qcode
+        qcode=$(printf "%s" "$qstatus" | sed -n 's/.*HTTP\/[^ ]* \([0-9][0-9][0-9]\).*/\1/p' || true)
+        if [ -n "$qcode" ] && [ "$qcode" != "" ]; then
+          if [ "$qcode" = "200" ]; then
+            log_ok "   GET ?${param} reachable: $qurl"
+            if [ "${SHOW_BODY:-1}" -eq 1 ]; then
+              log_info "   Fetching body (first ${MAX_BODY_LINES} lines) for: $qurl"
+              http_fetch "$qurl" | sed -n "1,${MAX_BODY_LINES}p" | sed 's/^/     /' || true
+            fi
+            # If we got something useful, skip trying other params for this URL
+            break
+          else
+            log_warn "   GET ?${param} returned HTTP ${qcode} for $qurl"
+          fi
+        fi
+      done
+
+      # Try Exchange SOAP POST (Autodiscover) if curl is available and the
+      # endpoint still hasn't returned a useful 200 result from the GETs.
+      if [ "$CURL_BIN" = "curl" ]; then
+        log_info "   Trying Exchange Autodiscover SOAP POST to: $u"
+        local soap_payload
+        soap_payload="<Autodiscover xmlns=\"http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006\"><Request><EMailAddress>${EMAIL}</EMailAddress><AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a</AcceptableResponseSchema></Request></Autodiscover>"
+        # Use run_with_timeout so we don't block when network is stale
+        local post_out
+        post_out=$(run_with_timeout "$TCP_TIMEOUT" "$CURL_BIN" -k -sS -H "Content-Type: text/xml; charset=utf-8" -d "$soap_payload" "$u" 2>/dev/null || true)
+        if [ -n "$post_out" ]; then
+          log_ok "   Autodiscover POST returned a body (truncated):"
+          printf "%s" "$post_out" | sed -n "1,${MAX_BODY_LINES}p" | sed 's/^/     /'
+        else
+          log_warn "   Autodiscover POST returned no content or timed out"
+        fi
+      fi
     fi
 
     case "$code" in
@@ -512,7 +680,11 @@ run_port_tests() {
 
   # IMAP
   log_info "${BOLD}${CYAN}IMAP checks for host:${RESET} ${BOLD}$imap_host${RESET}"
-  for port in 143 993; do
+  local imap_ports=(993)
+  if [ "${TEST_INSECURE_PORTS:-0}" -eq 1 ]; then
+    imap_ports=(143 993)
+  fi
+  for port in "${imap_ports[@]}"; do
     log_info "${MAGENTA}--> IMAP port ${port}${RESET}"
     tcp_test "$imap_host" "$port" "IMAP" "$TCP_TIMEOUT" || true
     if [ "$port" -eq 143 ]; then
@@ -525,7 +697,11 @@ run_port_tests() {
 
   # POP3
   log_info "${BOLD}${CYAN}POP3 checks for host:${RESET} ${BOLD}$pop_host${RESET}"
-  for port in 110 995; do
+  local pop_ports=(995)
+  if [ "${TEST_INSECURE_PORTS:-0}" -eq 1 ]; then
+    pop_ports=(110 995)
+  fi
+  for port in "${pop_ports[@]}"; do
     log_info "${MAGENTA}--> POP3 port ${port}${RESET}"
     tcp_test "$pop_host" "$port" "POP3" "$TCP_TIMEOUT" || true
     if [ "$port" -eq 110 ]; then
@@ -538,7 +714,11 @@ run_port_tests() {
 
   # SMTP / Submission
   log_info "${BOLD}${CYAN}SMTP checks for host:${RESET} ${BOLD}$smtp_host${RESET}"
-  for port in 25 465 587; do
+  local smtp_ports=(465 587)
+  if [ "${TEST_INSECURE_PORTS:-0}" -eq 1 ]; then
+    smtp_ports=(25 465 587)
+  fi
+  for port in "${smtp_ports[@]}"; do
     log_info "${MAGENTA}--> SMTP port ${port}${RESET}"
     tcp_test "$smtp_host" "$port" "SMTP" "$TCP_TIMEOUT" || true
     if [ "$port" -eq 25 ] || [ "$port" -eq 587 ]; then
@@ -585,16 +765,15 @@ smtp_auth_test() {
   auth_cmd="EHLO localhost\r\nAUTH LOGIN\r\n${user_b64}\r\n${pass_b64}\r\nQUIT\r\n"
 
   local out
-  if [ -n "$TIMEOUT_BIN" ]; then
-    out=$(printf "%b" "$auth_cmd" | $TIMEOUT_BIN "${timeout}s" "${sargs[@]}" 2>/dev/null || true)
-  else
-    out=$(printf "%b" "$auth_cmd" | "${sargs[@]}" 2>/dev/null || true)
-  fi
+  out=$(printf "%b" "$auth_cmd" | run_with_timeout "${timeout}" "${sargs[@]}" 2>&1)
+  rc=$?
 
   if echo "$out" | grep -qiE "^235|Authentication successful"; then
     log_ok "[$label] SMTP AUTH succeeded for $EMAIL_USER"
+    SUMMARY_AUTH+=("[SMTP] AUTH succeeded for $EMAIL_USER on $host:$port")
   else
     log_error "[$label] SMTP AUTH appears to have FAILED for $EMAIL_USER"
+    SUMMARY_AUTH+=("[SMTP] AUTH FAILED for $EMAIL_USER on $host:$port")
     echo "   ${YELLOW}Server said:${RESET}"
     echo "$out" | sed 's/^/     /' | head -n 8
   fi
@@ -615,6 +794,8 @@ TCP_TIMEOUT=5
 USE_MX=0
 SHOW_BODY=1
 MAX_BODY_LINES=120
+SUMMARY_FORMAT="plain" # other option: json
+TEST_INSECURE_PORTS=0 # by default skip testing legacy plaintext ports (143/110/25)
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -633,7 +814,7 @@ while [ $# -gt 0 ]; do
     --smtp-server)
       SMTP_SERVER="$2"; shift 2;;
     --password)
-      EMAIL_PASS="$2"; shift 2;;
+      EMAIL_PASS="$2"; DO_AUTH=1; shift 2;;
     --show-body)
       SHOW_BODY=1; shift;;
     --no-show-body)
@@ -652,8 +833,14 @@ while [ $# -gt 0 ]; do
       RUN_DNS=0; shift;;
     --no-ports)
       RUN_PORTS=0; shift;;
+    --test-insecure-ports)
+      # Explicitly enable testing legacy plaintext ports (143,110,25)
+      TEST_INSECURE_PORTS=1; shift;;
     --no-color)
       NO_COLOR=1; USE_COLOR=0; shift;;
+    --summary|--summary-format)
+      # Accept both: --summary json  or --summary-format json
+      SUMMARY_FORMAT="$2"; shift 2;;
     -h|--help)
       usage; exit 0;;
     *)
@@ -720,7 +907,195 @@ fi
 ############################
 # Main
 ############################
-print_banner
+print_final_summary() {
+  echo
+  echo "${MAGENTA}${BOLD}==== RUN SUMMARY ====${RESET}"
+
+  echo "${CYAN}${BOLD}Detected configuration:${RESET}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "Email:" "${EMAIL:-N/A}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "User:" "${EMAIL_USER:-N/A}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "Domain:" "${DOMAIN:-N/A}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "Server:" "${SERVER:-N/A}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "IMAP host:" "${IMAP_SERVER:-N/A}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "POP3 host:" "${POP_SERVER:-N/A}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "SMTP host:" "${SMTP_SERVER:-N/A}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "Timeout(s):" "${TCP_TIMEOUT:-N/A}"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "Auth tests:" "$( [ "${DO_AUTH:-0}" -eq 1 ] && echo enabled || echo disabled )"
+  printf "  ${CYAN}%-14s${RESET} ${BOLD}%s${RESET}\n" "Show bodies:" "$( [ "${SHOW_BODY:-1}" -eq 1 ] && echo enabled || echo disabled )"
+
+  echo
+  echo "${CYAN}${BOLD}Detected tools:${RESET}"
+  printf "  %s\n" "DNS: ${DNS_TOOL:-N/A}, TCP: ${NC_TOOL:-N/A}, TLS: ${OPENSSL_BIN:-N/A}, HTTP: ${CURL_BIN:-N/A}, timeout: ${TIMEOUT_BIN:-N/A}"
+
+  echo
+  # Ports summary
+  if [ "${#SUMMARY_PORTS[@]}" -gt 0 ]; then
+    echo "${BOLD}🔌 Ports & connectivity:${RESET}"
+    for p in "${SUMMARY_PORTS[@]}"; do
+      if printf "%s" "$p" | grep -q "NOT reachable"; then
+        printf "  %s %s\n" "${CHECK_FAIL}" "$p"
+      else
+        printf "  %s %s\n" "${CHECK_OK}" "$p"
+      fi
+    done
+    echo
+  fi
+
+  # TLS summary
+  if [ "${#SUMMARY_TLS[@]}" -gt 0 ]; then
+    echo "${BOLD}🔒 TLS handshakes & certs:${RESET}"
+    for t in "${SUMMARY_TLS[@]}"; do
+      if printf "%s" "$t" | grep -iq "FAILED\|error\|timed out"; then
+        printf "  %s %s\n" "${CHECK_FAIL}" "$t"
+      elif printf "%s" "$t" | grep -qi "verification may"; then
+        printf "  %s %s\n" "${CHECK_WARN}" "$t"
+      else
+        printf "  %s %s\n" "${CHECK_OK}" "$t"
+      fi
+    done
+    echo
+  fi
+
+  # Auth summary
+  if [ "${#SUMMARY_AUTH[@]}" -gt 0 ]; then
+    echo "${BOLD}🔑 Authentication attempts:${RESET}"
+    for a in "${SUMMARY_AUTH[@]}"; do
+      if printf "%s" "$a" | grep -qi "FAILED"; then
+        printf "  %s %s\n" "${CHECK_FAIL}" "$a"
+      else
+        printf "  %s %s\n" "${CHECK_OK}" "$a"
+      fi
+    done
+    echo
+  fi
+
+  if [ "${#SUMMARY_ISSUES[@]}" -eq 0 ]; then
+    echo "${GREEN}No issues found.${RESET} ✅"
+  else
+    echo "${YELLOW}Issues detected (${#SUMMARY_ISSUES[@]}):${RESET}"
+    local seen=()
+    for i in "${SUMMARY_ISSUES[@]}"; do
+      if printf "%s\n" "${seen[@]}" | grep -qxF -- "$i"; then
+        continue
+      fi
+      seen+=("$i")
+      printf "  - %s\n" "$i"
+    done
+  fi
+
+  echo
+  echo "Tip: inspect messages above for details, or rerun with --no-color to simplify parsing."
+
+  # If JSON output was requested, also print a machine readable JSON summary
+  if [ "${SUMMARY_FORMAT:-plain}" = "json" ]; then
+    print_summary_json
+  fi
+}
+
+
+json_escape() {
+  # Minimal JSON escaping for strings: backslash, quote, newline, tab, carriage
+  local s
+  s="$1"
+  s=${s//\\/\\\\}
+  s=${s//"/\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\t'/\\t}
+  printf '%s' "$s"
+}
+
+print_summary_json() {
+  # Build a JSON object. Keep it simple and safe for typical strings.
+  # Use printf to avoid shellwords issues.
+  echo
+  echo "{"
+  printf '  "detected_configuration": {\n'
+  printf '    "email": "%s",\n' "$(json_escape "${EMAIL:-}" )"
+  printf '    "user": "%s",\n' "$(json_escape "${EMAIL_USER:-}" )"
+  printf '    "domain": "%s",\n' "$(json_escape "${DOMAIN:-}" )"
+  printf '    "server": "%s",\n' "$(json_escape "${SERVER:-}" )"
+  printf '    "imap": "%s",\n' "$(json_escape "${IMAP_SERVER:-}" )"
+  printf '    "pop3": "%s",\n' "$(json_escape "${POP_SERVER:-}" )"
+  printf '    "smtp": "%s",\n' "$(json_escape "${SMTP_SERVER:-}" )"
+  printf '    "timeout_seconds": %s,\n' "${TCP_TIMEOUT:-null}"
+  printf '    "auth_tests": %s,\n' "$( [ "${DO_AUTH:-0}" -eq 1 ] && echo true || echo false )"
+  printf '    "show_bodies": %s\n' "$( [ "${SHOW_BODY:-1}" -eq 1 ] && echo true || echo false )"
+  printf '  },\n'
+
+  printf '  "detected_tools": {\n'
+  printf '    "dns": "%s",\n' "$(json_escape "${DNS_TOOL:-}" )"
+  printf '    "tcp": "%s",\n' "$(json_escape "${NC_TOOL:-}" )"
+  printf '    "tls": "%s",\n' "$(json_escape "${OPENSSL_BIN:-}" )"
+  printf '    "http": "%s",\n' "$(json_escape "${CURL_BIN:-}" )"
+  printf '    "timeout": "%s"\n' "$(json_escape "${TIMEOUT_BIN:-}" )"
+  printf '  },\n'
+
+  printf '  "ports": [\n'
+  if [ "${#SUMMARY_PORTS[@]}" -gt 0 ]; then
+    for i in "${!SUMMARY_PORTS[@]}"; do
+      p="${SUMMARY_PORTS[$i]}"
+      if [ "$i" -lt $(( ${#SUMMARY_PORTS[@]} - 1 )) ]; then
+        printf '    "%s",\n' "$(json_escape "$p")"
+      else
+        printf '    "%s"\n' "$(json_escape "$p")"
+      fi
+    done
+  fi
+  printf '  ],\n'
+
+  printf '  "tls": [\n'
+  if [ "${#SUMMARY_TLS[@]}" -gt 0 ]; then
+    for i in "${!SUMMARY_TLS[@]}"; do
+      t="${SUMMARY_TLS[$i]}"
+      if [ "$i" -lt $(( ${#SUMMARY_TLS[@]} - 1 )) ]; then
+        printf '    "%s",\n' "$(json_escape "$t")"
+      else
+        printf '    "%s"\n' "$(json_escape "$t")"
+      fi
+    done
+  fi
+  printf '  ],\n'
+
+  printf '  "auth": [\n'
+  if [ "${#SUMMARY_AUTH[@]}" -gt 0 ]; then
+    for i in "${!SUMMARY_AUTH[@]}"; do
+      a="${SUMMARY_AUTH[$i]}"
+      if [ "$i" -lt $(( ${#SUMMARY_AUTH[@]} - 1 )) ]; then
+        printf '    "%s",\n' "$(json_escape "$a")"
+      else
+        printf '    "%s"\n' "$(json_escape "$a")"
+      fi
+    done
+  fi
+  printf '  ],\n'
+
+  printf '  "issues": [\n'
+  if [ "${#SUMMARY_ISSUES[@]}" -gt 0 ]; then
+    for iidx in "${!SUMMARY_ISSUES[@]}"; do
+      ii="${SUMMARY_ISSUES[$iidx]}"
+      if [ "$iidx" -lt $(( ${#SUMMARY_ISSUES[@]} - 1 )) ]; then
+        printf '    "%s",\n' "$(json_escape "$ii")"
+      else
+        printf '    "%s"\n' "$(json_escape "$ii")"
+      fi
+    done
+  fi
+  printf '  ]\n'
+
+  echo "}"
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  # When SUMMARY_FORMAT=json we want to ensure stdout contains only the
+  # machine-readable JSON. Temporarily redirect stdout to stderr and save the
+  # original stdout on FD 3 so print_banner and other human output go to stderr.
+  if [ "${SUMMARY_FORMAT:-plain}" = "json" ]; then
+    exec 3>&1
+    exec 1>&2
+  fi
+
+  print_banner
 
 log_info "${BOLD}${CYAN}Email:${RESET}    ${BOLD}$EMAIL${RESET}"
 log_info "${BOLD}${CYAN}User:${RESET}     ${BOLD}$EMAIL_USER${RESET}"
@@ -730,14 +1105,20 @@ log_info "${BOLD}${CYAN}IMAP:${RESET}     ${BOLD}$IMAP_SERVER${RESET}"
 log_info "${BOLD}${CYAN}POP3:${RESET}     ${BOLD}$POP_SERVER${RESET}"
 log_info "${BOLD}${CYAN}SMTP:${RESET}     ${BOLD}$SMTP_SERVER${RESET}"
 if [ "$DO_AUTH" -eq 1 ]; then
-  log_info "Auth:     ${BOLD}enabled (password provided)${RESET}"
+  log_info "${BOLD}${CYAN}Auth:${RESET}     ${BOLD}enabled — password provided${RESET}"
 else
-  log_info "Auth:     ${BOLD}connectivity only (no password)${RESET}"
+  log_info "${BOLD}${CYAN}Auth:${RESET}     ${BOLD}connectivity only — no password${RESET}"
+fi
+
+# Notify user of default behaviour for plaintext legacy ports
+if [ "${TEST_INSECURE_PORTS:-0}" -ne 1 ]; then
+  log_info "Note: legacy plaintext ports (IMAP:143, POP3:110, SMTP:25) are skipped by default. Use --test-insecure-ports to include them."
 fi
 
 # If timeout helper isn't present, warn the user that some tests may block/hang
 if [ -z "$TIMEOUT_BIN" ] && [ "$RUN_PORTS" -eq 1 ]; then
-  log_warn "No 'timeout' command found on system — port/TLS/auth checks may hang. Install coreutils (timeout) or gtimeout on macOS for robust timeouts."
+  log_warn "No 'timeout' command found on system — port/TLS/auth checks may hang. Install coreutils
+  timeout or gtimeout on macOS for robust timeouts."
 fi
 
 [ "$RUN_DNS" -eq 1 ] && run_dns_tests "$DOMAIN"
@@ -746,4 +1127,20 @@ fi
 
 echo
 echo "${GREEN}${BOLD}All tests complete.${RESET} ${SPARK} ${CYAN}Review results above to identify any misconfigurations.${RESET}"
-echo "Pro tip: tweak servers/ports and rerun to simulate different client setups. 🧪"
+  # Print final summary or JSON-only output depending on requested format
+  if [ "${SUMMARY_FORMAT:-plain}" = "json" ]; then
+    # Prefer to emit JSON to the original stdout (saved on FD 3). If FD3 is
+    # not writable for any reason, fall back to printing to the current stdout
+    # so we don't produce a "Bad file descriptor" runtime error.
+    if { true >&3; } 2>/dev/null; then
+      print_summary_json >&3
+      exec 3>&-
+    else
+      # FD3 not writable — fallback to writing JSON to current stdout
+      print_summary_json
+    fi
+  else
+    # Human-friendly summary to stdout
+    print_final_summary
+  fi
+fi

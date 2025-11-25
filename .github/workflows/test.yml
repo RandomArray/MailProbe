@@ -22,3 +22,23 @@ jobs:
         run: |
           chmod +x ./tests/run-tests.sh
           ./tests/run-tests.sh
+      - name: Verify JSON-only stdout for --summary json
+        run: |
+          chmod +x ./mailprobe.sh
+          # Capture stdout and stderr separately
+          ./mailprobe.sh -e test@example.com --no-dns --no-autodiscover --no-ports --no-color --summary json > json_out 2> json_err || true
+          # Ensure stdout is valid JSON
+          if command -v python3 >/dev/null 2>&1; then
+            python3 -c 'import json,sys; json.load(open("json_out","r"))'
+          elif command -v python >/dev/null 2>&1; then
+            python -c 'import json,sys; json.load(open("json_out","r"))'
+          else
+            cat json_out | sed -n '1,20p'
+            exit 1
+          fi
+          # Ensure stderr contains human diagnostics
+          if [ ! -s json_err ]; then
+            echo "Expected human diagnostics on stderr but json_err is empty"
+            cat json_err || true
+            exit 1
+          fi
