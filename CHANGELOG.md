@@ -20,6 +20,13 @@ All notable changes to this project will be documented in this file.
 
 - Increase grace period on internal run_with_timeout fallback to improve
 	reliability of captured early stdout on CI/low-scheduling environments.
+
+## [1.1.2] - 2025-11-24
+
+- Additional cross-platform reliability: run_with_timeout now attempts to
+	force line-buffered output (via stdbuf) or run under a pty (script) when
+	available — this fixes macOS CI flakiness where early stdout was not being
+	captured reliably.
 	This reduces flaky failures where early stdout output could be lost after
 	a forced timeout.
 
