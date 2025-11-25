@@ -264,12 +264,34 @@ run_with_timeout() {
   # Launch the command under a shell that uses exec so the spawned process
   # replaces the shell — this ensures $! matches the long-running command
   # rather than a short-lived wrapper (fixes race where wrappers exit).
+  #
+  # Use stdbuf (when available) to force line-buffering or fall back to
+  # running the command under `script` (pty) to make the child think it's
+  # driving a TTY — in either case the child will flush early stdout reliably
+  # (helps CI/macOS where stdio is block-buffered when output is to a file).
+  local wrapper_cmd=()
+  if command -v stdbuf >/dev/null 2>&1; then
+    wrapper_cmd=(stdbuf -oL -eL)
+  elif command -v script >/dev/null 2>&1; then
+    # script -q /dev/null -c '<cmd>' runs the command under a pty and writes
+    # output to /dev/null; we instruct it to write to our stdout_file instead
+    # by using -c and then redirecting the script output file descriptors.
+    wrapper_cmd=(script -q /dev/null -c)
+  fi
   local cmd=("$@")
   if [ -n "$SESS_BIN" ]; then
     # Use setsid to run in new session so we can kill the whole group reliably
-    $SESS_BIN bash -c 'exec "$@"' -- "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" &
+    if [ ${#wrapper_cmd[@]} -gt 0 ]; then
+      $SESS_BIN "${wrapper_cmd[@]}" bash -c 'exec "$@"' -- "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" &
+    else
+      $SESS_BIN bash -c 'exec "$@"' -- "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" &
+    fi
   else
-    bash -c 'exec "$@"' -- "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" &
+    if [ ${#wrapper_cmd[@]} -gt 0 ]; then
+      "${wrapper_cmd[@]}" bash -c 'exec "$@"' -- "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" &
+    else
+      bash -c 'exec "$@"' -- "${cmd[@]}" >"$stdout_file" 2>"$stderr_file" &
+    fi
   fi
   local pid=$!
 
