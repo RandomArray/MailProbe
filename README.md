@@ -4,7 +4,7 @@
 	<img src="assets/mailprobe-logo.png" alt="MailProbe logo" width="420" />
 </p>
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.1.2-blue.svg)
 ![Shell](https://img.shields.io/badge/shell-bash-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
@@ -161,7 +161,7 @@ Licensed under the MIT License. See `LICENSE` for details.
 ## 🧩 Shields.io Badges
 
 ```
-![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.1.2-blue.svg)
 ![Shell](https://img.shields.io/badge/shell-bash-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
